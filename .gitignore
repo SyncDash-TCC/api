@@ -1,0 +1,35 @@
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.db
+*.sqlite3
+*.env
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Virtual Environment
+venv/
+.env/
+pipenv.lock
+Pipfile.lock
+
+# Logs
+*.log
+
+# Build and Distribution
+build/
+dist/
+*.egg-info/
+*.egg
+
+# System Files
+.DS_Store
+Thumbs.db

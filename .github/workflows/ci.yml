@@ -1,0 +1,28 @@
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+    group: ${{ github.head_ref }}
+    cancel-in-progress: true
+
+
+name: CI
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Run linter check
+        id: run-tests
+        run: |
+          make create_db
+          make r-env
+          make build
+          make linter
