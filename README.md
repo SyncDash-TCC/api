@@ -2,6 +2,7 @@
 
 # How to run
 
+0. Create file `.env`
 1. Run `make r-env`
 2. Run `make build`
 3. Run `make run-dev`
