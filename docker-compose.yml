@@ -1,0 +1,35 @@
+services:
+    postgresql:
+        image: postgres
+        container_name: postgres_sisdash
+        restart: always
+        ports:
+            - 5434:5432
+        environment:
+            POSTGRES_PASSWORD: ${PG_PASS}
+            POSTGRES_USER: ${PG_USER}
+            POSTGRES_DB: ${PG_DB}
+        volumes:
+            - /var/cache/pgdata:/var/lib/postgresql/data
+
+    pgadmin:
+        image: dpage/pgadmin4
+        container_name: pgadmin_sisdash
+        environment:
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASS}
+        ports:
+            - 5050:80
+        depends_on:
+            - postgresql
+
+    api:
+        container_name: api
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - "8002:8000"
+        depends_on:
+            - postgresql
+        command: pipenv run uvicorn main:app --reload --host 0.0.0.0 --port 8000

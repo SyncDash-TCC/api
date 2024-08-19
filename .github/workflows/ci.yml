@@ -22,7 +22,6 @@ jobs:
       - name: Run linter check
         id: run-tests
         run: |
-          make create_db
           make r-env
           make build
           make linter
