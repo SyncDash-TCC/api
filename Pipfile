@@ -9,6 +9,11 @@ uvicorn = "*"
 sqlalchemy = "*"
 asyncpg = "*"
 flake8-debugger = "*"
+psycopg2-binary = "*"
+alembic = "*"
+passlib = "*"
+python-jose = "*"
+python-multipart = "*"
 
 [dev-packages]
 

@@ -20,4 +20,4 @@ RUN pipenv install flake8 --dev
 EXPOSE 8000
 
 # Execute o aplicativo com uvicorn
-CMD ["pipenv", "run", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["pipenv", "run", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
