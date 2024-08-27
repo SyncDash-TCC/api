@@ -9,7 +9,7 @@ build:
 	docker compose build
 
 create_db:
-	python database/init_db.py
+	alembic upgrade head
 
 bash:
 	docker exec -it api bash
