@@ -8,4 +8,10 @@
 4. Run `make create_db`
 
 # How to linter
+
 - If you want to run just linter, run `make linter`
+
+# How to run migrations
+
+1. alembic revision --autogenerate -m `<nome_migration>`
+2. alembic upgrade head
