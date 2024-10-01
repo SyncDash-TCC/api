@@ -1,5 +1,6 @@
 -i https://pypi.org/simple
 annotated-types==0.7.0
+alembic
 anyio==4.4.0
 async-timeout==4.0.3
 asyncpg==0.29.0

@@ -30,6 +30,11 @@ services:
             dockerfile: Dockerfile
         ports:
             - "8002:8000"
+        environment:
+            PGHOST: postgresql
+            POSTGRES_PASSWORD: ${PG_PASS}
+            POSTGRES_USER: ${PG_USER}
+            POSTGRES_DB: ${PG_DB}
         volumes:
             - .:/app 
         depends_on:

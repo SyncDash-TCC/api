@@ -1,15 +1,19 @@
-from fastapi import APIRouter, Depends, status
+import os
+from fastapi import APIRouter, Depends, HTTPException, status
+from jose import JWTError
 from sqlalchemy.orm import Session
 from app.schemas import User
-from app.depends import get_db_session, token_verifier
+from app.depends import get_db_session
 from app.auth_user import UserUseCases
 from fastapi.responses import JSONResponse
-from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
+from app.depends import oauth_scheme
+from jose import jwt
+
+from database.models import UserModel
 
 
 user_router = APIRouter(prefix='/auth')
-test_router = APIRouter(prefix='/test', dependencies=[Depends(token_verifier)])
 
 class LoginRequest(BaseModel):
     username: str
@@ -42,12 +46,37 @@ def user_login(
     )
 
     auth_data = uc.user_login(user=user)
+
     return JSONResponse(
         content=auth_data,
         status_code=status.HTTP_200_OK
     )
 
 
-@test_router.get('/test')
-def test_user_verify():
-    return 'It works'
+@user_router.get('/detail')
+def get_current_user(
+    token: str = Depends(oauth_scheme),
+    db_session: Session = Depends(get_db_session)
+):
+    # Exceção padrão para erros de autenticação
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        # Decodifica o token JWT usando a chave secreta e algoritmo
+        payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=[os.getenv("ALGORITHM")])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    # Verifica se o usuário existe no banco de dados
+    user = db_session.query(UserModel).filter(UserModel.username == username).first()
+    if user is None:
+        raise credentials_exception
+
+    # Retorna o nome do usuário logado
+    return JSONResponse(content={"username": user.username}, status_code=status.HTTP_200_OK)

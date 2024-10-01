@@ -61,6 +61,7 @@ class UserUseCases:
 
         return {
             'access_token': access_token,
+            'username': user.username,
             'exp': exp.isoformat()
         }
 
