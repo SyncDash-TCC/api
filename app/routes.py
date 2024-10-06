@@ -1,4 +1,5 @@
 import os
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from jose import JWTError
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from app.depends import oauth_scheme
 from jose import jwt
+from pydantic import BaseModel, validator
 
 from database.models import UserModel
 
@@ -19,6 +21,13 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+    # Validação para verificar caracteres especiais no campo username
+    @validator('username')
+    def no_special_characters(cls, v):
+        if re.search(r'[^a-zA-Z0-9_]', v):
+            raise ValueError('O nome de usuário contém caracteres especiais inválidos.')
+        return v
+
 
 @user_router.post('/register')
 def user_register(
@@ -28,7 +37,7 @@ def user_register(
     uc = UserUseCases(db_session=db_session)
     uc.user_register(user=user)
     return JSONResponse(
-        content={'msg': 'success'},
+        content={"message": "User created"},
         status_code=status.HTTP_201_CREATED
     )
 
@@ -39,6 +48,7 @@ def user_login(
     login_request: LoginRequest,
     db_session: Session = Depends(get_db_session),
 ):
+
     uc = UserUseCases(db_session=db_session)
     user = User(
         username=login_request.username,
