@@ -1,32 +1,19 @@
 import os
-import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from jose import JWTError
 from sqlalchemy.orm import Session
-from app.schemas import User
-from app.depends import get_db_session
+from app.schemas import LoginRequest, PlanilhaCreate, User
+from app.depends import get_current_user, get_db_session
 from app.auth_user import UserUseCases
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from app.depends import oauth_scheme
 from jose import jwt
-from pydantic import BaseModel, validator
 
-from database.models import UserModel
+from database.models import PanilhaModel, UserModel
 
 
 user_router = APIRouter(prefix='/auth')
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-    # Validação para verificar caracteres especiais no campo username
-    @validator('username')
-    def no_special_characters(cls, v):
-        if re.search(r'[^a-zA-Z0-9_]', v):
-            raise ValueError('O nome de usuário contém caracteres especiais inválidos.')
-        return v
+planilha_router = APIRouter(prefix='/planilha')
 
 
 @user_router.post('/register')
@@ -64,7 +51,7 @@ def user_login(
 
 
 @user_router.get('/detail')
-def get_current_user(
+def get_current_user_details(
     token: str = Depends(oauth_scheme),
     db_session: Session = Depends(get_db_session)
 ):
@@ -90,3 +77,33 @@ def get_current_user(
 
     # Retorna o nome do usuário logado
     return JSONResponse(content={"username": user.username}, status_code=status.HTTP_200_OK)
+
+
+@planilha_router.post('/register')
+def create_planilha(
+    planilha: PlanilhaCreate,
+    token: str = Depends(oauth_scheme),
+    db_session: Session = Depends(get_db_session)
+):
+    
+    user = get_current_user(token=token, db=db_session)
+    
+    nova_planilha = PanilhaModel(
+        nome_produto=planilha.nome_produto,
+        data_venda=planilha.data_venda,
+        data_pagamento=planilha.data_pagamento,
+        valor_bruto=planilha.valor_bruto,
+        valor_liquido=planilha.valor_liquido,
+        taxa=planilha.taxa,
+        forma_pagamento=planilha.forma_pagamento,
+        user_id=user.id,
+        categoria_produto=planilha.categoria
+    )
+
+    db_session.add(nova_planilha)
+    db_session.commit()
+
+    return JSONResponse(
+        content={"message": "Dados inseridos com sucesso!"},
+        status_code=status.HTTP_200_OK
+    )
