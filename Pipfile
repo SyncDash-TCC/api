@@ -14,6 +14,8 @@ alembic = "*"
 passlib = "*"
 python-jose = "*"
 python-multipart = "*"
+pandas = "*"
+openpyxl = "*"
 
 [dev-packages]
 

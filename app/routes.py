@@ -1,5 +1,6 @@
 import os
-from fastapi import APIRouter, Depends, HTTPException, status
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from jose import JWTError
 from sqlalchemy.orm import Session
 from app.schemas import LoginRequest, PlanilhaCreate, User
@@ -102,6 +103,41 @@ def create_planilha(
 
     db_session.add(nova_planilha)
     db_session.commit()
+
+    return JSONResponse(
+        content={"message": "Dados inseridos com sucesso!"},
+        status_code=status.HTTP_200_OK
+    )
+
+
+@planilha_router.put('/upload')
+def create_planilha(
+    selected_file: UploadFile = File(...),
+    token: str = Depends(oauth_scheme),
+    db_session: Session = Depends(get_db_session)
+):
+    
+    user = get_current_user(token=token, db=db_session)
+    
+    try:
+        df = pd.read_excel(selected_file.file, skiprows=range(1, 10))
+        for index, row in df.iterrows():
+            nova_planilha = PanilhaModel(
+                nome_produto=row['NOME DO PRODUTO'],
+                data_venda=row['DATA DE VENDA (DIA-MÊS-ANO)'],
+                data_pagamento=row['DATA DO PAGAMENTO (DIA-MÊS-ANO)'],
+                valor_bruto=row['VALOR BRUTO (R$)'],
+                valor_liquido=row['VALOR LIQUIDO (R$)'],
+                taxa=row['TAXA (R$)'],
+                forma_pagamento=row['FORMA DE PAGAMENTO'],
+                user_id=user.id,
+                categoria_produto=row['CATEGORIA']
+            )
+
+            db_session.add(nova_planilha)
+            db_session.commit()
+    except Exception as e:
+        return JSONResponse(content=str(e), status_code=status.HTTP_400_BAD_REQUEST)
 
     return JSONResponse(
         content={"message": "Dados inseridos com sucesso!"},
