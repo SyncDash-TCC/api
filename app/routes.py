@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from jose import JWTError
 from sqlalchemy.orm import Session
@@ -9,12 +10,14 @@ from app.auth_user import UserUseCases
 from fastapi.responses import JSONResponse
 from app.depends import oauth_scheme
 from jose import jwt
+from sqlalchemy import func
 
 from database.models import PanilhaModel, UserModel
 
 
 user_router = APIRouter(prefix='/auth')
 planilha_router = APIRouter(prefix='/planilha')
+dashboard_router = APIRouter(prefix='/dashboard')
 
 
 @user_router.post('/register')
@@ -122,10 +125,14 @@ def create_planilha(
     try:
         df = pd.read_excel(selected_file.file, skiprows=range(1, 10))
         for index, row in df.iterrows():
+
+            data_venda = datetime.strptime(row['DATA DE VENDA (DIA-MÊS-ANO)'], '%d-%m-%Y').strftime('%Y-%m-%d')
+            data_pagamento = datetime.strptime(row['DATA DO PAGAMENTO (DIA-MÊS-ANO)'], '%d-%m-%Y').strftime('%Y-%m-%d')
+
             nova_planilha = PanilhaModel(
                 nome_produto=row['NOME DO PRODUTO'],
-                data_venda=row['DATA DE VENDA (DIA-MÊS-ANO)'],
-                data_pagamento=row['DATA DO PAGAMENTO (DIA-MÊS-ANO)'],
+                data_venda=data_venda,
+                data_pagamento=data_pagamento,
                 valor_bruto=row['VALOR BRUTO (R$)'],
                 valor_liquido=row['VALOR LIQUIDO (R$)'],
                 taxa=row['TAXA (R$)'],
@@ -143,3 +150,140 @@ def create_planilha(
         content={"message": "Dados inseridos com sucesso!"},
         status_code=status.HTTP_200_OK
     )
+
+
+@dashboard_router.get('/detail')
+def get_dashboard_detail(
+    token: str = Depends(oauth_scheme),
+    db_session: Session = Depends(get_db_session)
+):
+        
+    user = get_current_user(token=token, db=db_session)
+    planilhas = db_session.query(PanilhaModel).filter(PanilhaModel.user_id == user.id).order_by(PanilhaModel.data_venda).all()
+
+    unique_dates = set()
+    
+    for planilha in planilhas:
+        year_month = planilha.data_venda.strftime("%Y-%m")
+        unique_dates.add(year_month)
+
+    year_months = list(sorted(unique_dates))
+
+    faturamento_results = (
+        db_session.query(
+            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
+            func.sum(PanilhaModel.valor_bruto).label('total_valor_bruto'),
+            func.sum(PanilhaModel.valor_liquido).label('total_valor_liquido')
+        )
+        .filter(
+            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').in_(year_months)
+        )
+        .group_by(func.to_char(PanilhaModel.data_venda, 'YYYY-MM')).all()
+    )
+
+    forma_pagamento_results = (
+        db_session.query(
+            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
+            PanilhaModel.forma_pagamento,
+            func.sum(PanilhaModel.valor_bruto).label('total_valor')
+        )
+        .filter(
+            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').in_(year_months)
+        )
+        .group_by(func.to_char(PanilhaModel.data_venda, 'YYYY-MM'), PanilhaModel.forma_pagamento)
+        .all()
+    )
+
+    categoria_results = (
+        db_session.query(PanilhaModel.categoria_produto, func.count(PanilhaModel.id).label('total_vendas'))
+        .filter(PanilhaModel.user_id == user.id)
+        .group_by(PanilhaModel.categoria_produto).all()
+    )
+
+    vendas_por_mes_results = (
+        db_session.query(
+            func.count(PanilhaModel.id).label('total_vendas')
+        )
+        .filter(
+            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').in_(year_months)
+        )
+        .group_by(func.to_char(PanilhaModel.data_venda, 'YYYY-MM')).all()
+    )
+
+    produtos_servicos_results = (
+        db_session.query(PanilhaModel.nome_produto, func.count(PanilhaModel.id).label('total_produto'))
+        .filter(PanilhaModel.user_id == user.id)
+        .group_by(PanilhaModel.nome_produto).all()
+    )
+
+    total_produtos_servico = sum(item.total_produto for item in produtos_servicos_results)
+
+    vendas_por_mes = list(reversed([res.total_vendas for res in vendas_por_mes_results]))
+
+    total_vendas = sum(item.total_vendas for item in categoria_results)
+
+    categorias_data = [
+        {
+            "label": item.categoria_produto,
+            "value": round((item.total_vendas / total_vendas) * 100, 2) if total_vendas > 0 else 0,
+            "id": item.categoria_produto
+        }
+        for item in categoria_results
+    ]
+
+    produto_servico_data = [
+        {
+            "label": item.nome_produto,
+            "value": round((item.total_produto / total_produtos_servico) * 100, 2) if total_produtos_servico > 0 else 0,
+            "id": item.nome_produto
+        }
+        for item in produtos_servicos_results
+    ]
+
+    bruto_values = []
+    liquido_values = []
+    
+    for result in faturamento_results:
+        bruto_values.append(result.total_valor_bruto)
+        liquido_values.append(result.total_valor_liquido)
+
+    dates_formatted = [datetime.strptime(date, "%Y-%m").strftime("%m/%Y") for date in year_months]
+
+    pagamento_data = {
+        'Pix': [],
+        'Crédito': [],
+        'Débito': [],
+        'Boleto': []
+    }
+
+    total_por_mes = {date: 0 for date in year_months}
+
+    for res in forma_pagamento_results:
+        total_por_mes[res.year_month] += res.total_valor
+
+    for date in year_months:
+        for metodo in pagamento_data.keys():
+            valor = next((res.total_valor for res in forma_pagamento_results if res.year_month == date and res.forma_pagamento == metodo), 0)
+            total_mes = total_por_mes[date]
+            porcentagem = (valor / total_mes * 100) if total_mes > 0 else 0
+            pagamento_data[metodo].append(porcentagem)
+
+    data = {
+        "faturamento": [{'bruto': bruto_values}, {'liquido': liquido_values}],
+        "vendas_por_forma_pagamento": pagamento_data,
+        "vendas_por_categoria": categorias_data,
+        "vendas_por_mes": vendas_por_mes,
+        "produtos_servicos": produto_servico_data,
+        "dates": dates_formatted
+    }
+
+    return JSONResponse(
+        content=data,
+        status_code=status.HTTP_200_OK
+    )
+
+    
+
+
+    
+        

@@ -35,7 +35,7 @@ class UserUseCases:
                 detail='User already exists'
             )
 
-    def user_login(self, user: User, expires_in: int = 30):
+    def user_login(self, user: User, expires_in: int = 300):
         user_on_db = self.db_session.query(UserModel).filter_by(username=user.username).first()
 
         if user_on_db is None:

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import user_router, planilha_router
+from app.routes import user_router, planilha_router, dashboard_router
 from fastapi.security import OAuth2PasswordBearer
 
 app = FastAPI()
@@ -23,3 +23,4 @@ def health_check():
 
 app.include_router(user_router)
 app.include_router(planilha_router)
+app.include_router(dashboard_router)
