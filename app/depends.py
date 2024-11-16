@@ -63,14 +63,14 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
 
     faturamento_results = (
         db_session.query(
-            func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
+            func.date_trunc('month', PlanilhaModel.data_venda).label('year_month'),
             func.sum(PlanilhaModel.valor_bruto).label('total_valor_bruto'),
             func.sum(PlanilhaModel.valor_liquido).label('total_valor_liquido')
         )
         .filter(
             and_(*filters)
         )
-        .group_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM'))
+        .group_by(func.date_trunc('month', PlanilhaModel.data_venda))
     )
 
     forma_pagamento_results = (
@@ -94,12 +94,15 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
 
     vendas_por_mes_results = (
         db_session.query(
+            func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
             func.count(PlanilhaModel.id).label('total_vendas')
         )
         .filter(
             and_(*filters)
         )
-        .group_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM')).all()
+        .group_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM'))
+        .order_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').asc())
+        .all() 
     )
 
     produtos_servicos_results = (
@@ -119,6 +122,7 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
             and_(*filters)
         )
         .group_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM'))
+        .order_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').asc())
         .all()
     )
 
@@ -175,7 +179,7 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
     bruto_values = []
     liquido_values = []
     
-    for result in faturamento_results:
+    for result in faturamento_results.order_by('year_month').all():
         bruto_values.append(round(result.total_valor_bruto, 2))
         liquido_values.append(round(result.total_valor_liquido, 2))
 
@@ -216,4 +220,8 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
         "produtos_servicos": produto_servico_data,
         "margem_lucro_porcentagem": margem_lucro_percentage,
         "dates": dates_formatted,
+        "date_selected": [datetime.strptime(date, '%Y-%m').strftime('%m/%Y') for date in year_months]
     }
+
+def format_currency(value: float) -> str:
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")

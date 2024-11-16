@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, Float, Integer, String, ForeignKey
+from sqlalchemy import Column, Date, DateTime, Float, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship, declarative_base
 
 
@@ -33,4 +33,4 @@ class HistoricDashboard(Base):
     __tablename__ = "historic_dashboard"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    data_upload_planilha = Column(Date, nullable=False)
+    data_upload_planilha = Column(DateTime, nullable=False)

@@ -1,17 +1,18 @@
 import os
+import locale
 import pandas as pd
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from jose import JWTError
 from sqlalchemy.orm import Session
 from app.schemas import LoginRequest, PlanilhaCreate, User
-from app.depends import get_current_user, get_data_dashboard, get_db_session
+from app.depends import format_currency, get_current_user, get_data_dashboard, get_db_session
 from app.auth_user import UserUseCases
 from fastapi.responses import JSONResponse
 from app.depends import oauth_scheme
 from jose import jwt
-from sqlalchemy import and_, func
-from typing import Annotated, List
+from sqlalchemy import and_, func, text
+from typing import List
 
 from database.models import HistoricDashboard, PlanilhaModel, UserModel
 
@@ -19,6 +20,7 @@ from database.models import HistoricDashboard, PlanilhaModel, UserModel
 user_router = APIRouter(prefix='/auth')
 planilha_router = APIRouter(prefix='/planilha')
 dashboard_router = APIRouter(prefix='/dashboard')
+historico_router = APIRouter(prefix='/historico')
 
 
 @user_router.post('/register')
@@ -133,7 +135,7 @@ def create_planilha(
     
     try:
         # Exel -> DataFrame
-        df = pd.read_excel(selected_file.file, skiprows=range(1, 10))
+        df = pd.read_excel(selected_file.file, skiprows=range(0, 11))
 
         # Coverter datas para o formato correto
         df['DATA DE VENDA (DIA-MÊS-ANO)'] = pd.to_datetime(df['DATA DE VENDA (DIA-MÊS-ANO)'], format='%d-%m-%Y')
@@ -175,6 +177,7 @@ def create_planilha(
 @dashboard_router.get('/detail')
 def get_dashboard_detail(
     date_selected: List[str] = Query(None, alias="date_selected[]"),
+    id_historico: int = Query(None, alias="id_historico"),
     token: str = Depends(oauth_scheme),
     db_session: Session = Depends(get_db_session)
 ):  
@@ -183,27 +186,131 @@ def get_dashboard_detail(
 
     filters = [PlanilhaModel.user_id==user.id]
     if date_selected:
-        filter_date = [datetime.strptime(date_selected, "%m/%Y") for date_selected in date_selected]
+        filter_date = [datetime.strptime(date, "%m/%Y") for date in date_selected]
         filter_date.sort()
         filters.append(
             func.extract('year', PlanilhaModel.data_venda).in_([date.year for date in filter_date]) &
             func.extract('month', PlanilhaModel.data_venda).in_([date.month for date in filter_date])
         )
+
+    if id_historico:
+        filters.append(PlanilhaModel.historic_dashboard_id == id_historico)
     
     planilhas = db_session.query(PlanilhaModel).filter(and_(*filters)).order_by(PlanilhaModel.data_venda).all()
 
     data = get_data_dashboard(planilhas, user, db_session, filters)
 
+    return JSONResponse(
+        content=data,
+        status_code=status.HTTP_200_OK
+    )
+
+
+@planilha_router.get('/detail')
+def get_planilha_detail(
+    date_selected: List[str] = Query(None, alias="date_selected[]"),
+    id_historico: int = Query(None, alias="id_historico"),
+    token: str = Depends(oauth_scheme),
+    db_session: Session = Depends(get_db_session)
+):
+
+    user = get_current_user(token=token, db=db_session)
+
+    filters = [PlanilhaModel.user_id==user.id]
     if date_selected:
-        date_selected.sort()
-        data['date_selected'] = date_selected
+        filter_date = [datetime.strptime(date, "%m/%Y") for date in date_selected]
+        filter_date.sort()
+        filters.append(
+            func.extract('year', PlanilhaModel.data_venda).in_([date.year for date in filter_date]) &
+            func.extract('month', PlanilhaModel.data_venda).in_([date.month for date in filter_date])
+        )
+
+    if id_historico:
+        filters.append(PlanilhaModel.historic_dashboard_id == id_historico)
+
+    planilhas = (
+        db_session.query(
+            PlanilhaModel.id,
+            func.to_char(PlanilhaModel.data_venda, 'DD/MM/YYYY').label('data_venda'),
+            func.to_char(PlanilhaModel.data_pagamento, 'DD/MM/YYYY').label('data_pagamento'),
+            PlanilhaModel.valor_bruto,
+            PlanilhaModel.valor_liquido,
+            PlanilhaModel.taxa,
+            PlanilhaModel.forma_pagamento,
+            PlanilhaModel.nome_produto,
+            PlanilhaModel.categoria_produto,
+            PlanilhaModel.historic_dashboard_id
+        )
+        .filter(and_(*filters))
+        .order_by(PlanilhaModel.data_venda).all()
+    )
+
+    dates = db_session.query(func.date_trunc('month', PlanilhaModel.data_venda).label('month_year'))\
+        .filter(PlanilhaModel.user_id == user.id)\
+        .distinct()\
+        .order_by(func.date_trunc('month', PlanilhaModel.data_venda))\
+        .all()
+    dates_formatted = [
+        date[0].strftime("%m/%Y")
+        for date in dates
+    ]
+
+    formatted_rows = [
+        {
+            "id": row.id,
+            "data_venda": row.data_venda,
+            "data_pagamento": row.data_pagamento,
+            "valor_bruto": format_currency(row.valor_bruto),
+            "valor_liquido": format_currency(row.valor_liquido),
+            "taxa": format_currency(row.taxa),
+            "forma_pagamento": row.forma_pagamento,
+            "nome_produto": row.nome_produto,
+            "categoria_produto": row.categoria_produto,
+        }
+        for row in planilhas
+    ]
+
+    data = {
+        "planilhas": formatted_rows,
+        "dates": dates_formatted
+    }
+
+    if date_selected:
+        data['date_selected'] = list(dict.fromkeys(date.strftime("%m/%Y") for date in filter_date))
     else:
-        data['date_selected'] = data['dates']
+        data['date_selected'] = dates_formatted
 
     return JSONResponse(
         content=data,
         status_code=status.HTTP_200_OK
     )
+
+
+@historico_router.get('/detail')
+def get_historico_detail(
+    token: str = Depends(oauth_scheme),
+    db_session: Session = Depends(get_db_session)
+):
+
+    user = get_current_user(token=token, db=db_session)
+
+    historico = db_session.query(HistoricDashboard).filter(HistoricDashboard.user_id == user.id).all()
+
+    data = [
+        {
+            "id": row.id,
+            "data": row.data_upload_planilha.strftime('%d/%m/%Y'),
+            "hora": row.data_upload_planilha.strftime('%H:%M:%S')
+        }
+        for row in historico
+    ]
+
+    return JSONResponse(
+        content=data,
+        status_code=status.HTTP_200_OK
+    )
+
+
 
     
 
