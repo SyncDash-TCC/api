@@ -1,18 +1,19 @@
 import os
 import pandas as pd
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from jose import JWTError
 from sqlalchemy.orm import Session
 from app.schemas import LoginRequest, PlanilhaCreate, User
-from app.depends import get_current_user, get_db_session
+from app.depends import get_current_user, get_data_dashboard, get_db_session
 from app.auth_user import UserUseCases
 from fastapi.responses import JSONResponse
 from app.depends import oauth_scheme
 from jose import jwt
-from sqlalchemy import func
+from sqlalchemy import and_, func
+from typing import Annotated, List
 
-from database.models import PanilhaModel, UserModel
+from database.models import HistoricDashboard, PlanilhaModel, UserModel
 
 
 user_router = APIRouter(prefix='/auth')
@@ -92,7 +93,7 @@ def create_planilha(
     
     user = get_current_user(token=token, db=db_session)
     
-    nova_planilha = PanilhaModel(
+    nova_planilha = PlanilhaModel(
         nome_produto=planilha.nome_produto,
         data_venda=planilha.data_venda,
         data_pagamento=planilha.data_pagamento,
@@ -121,28 +122,47 @@ def create_planilha(
 ):
     
     user = get_current_user(token=token, db=db_session)
+
+    historic = HistoricDashboard(
+        user_id=user.id,
+        data_upload_planilha=datetime.now()
+    )
+
+    db_session.add(historic)
+    db_session.commit()
     
     try:
+        # Exel -> DataFrame
         df = pd.read_excel(selected_file.file, skiprows=range(1, 10))
-        for index, row in df.iterrows():
 
-            data_venda = datetime.strptime(row['DATA DE VENDA (DIA-MÊS-ANO)'], '%d-%m-%Y').strftime('%Y-%m-%d')
-            data_pagamento = datetime.strptime(row['DATA DO PAGAMENTO (DIA-MÊS-ANO)'], '%d-%m-%Y').strftime('%Y-%m-%d')
+        # Coverter datas para o formato correto
+        df['DATA DE VENDA (DIA-MÊS-ANO)'] = pd.to_datetime(df['DATA DE VENDA (DIA-MÊS-ANO)'], format='%d-%m-%Y')
+        df['DATA DO PAGAMENTO (DIA-MÊS-ANO)'] = pd.to_datetime(df['DATA DO PAGAMENTO (DIA-MÊS-ANO)'], format='%d-%m-%Y')
 
-            nova_planilha = PanilhaModel(
-                nome_produto=row['NOME DO PRODUTO'],
-                data_venda=data_venda,
-                data_pagamento=data_pagamento,
-                valor_bruto=row['VALOR BRUTO (R$)'],
-                valor_liquido=row['VALOR LIQUIDO (R$)'],
-                taxa=row['TAXA (R$)'],
-                forma_pagamento=row['FORMA DE PAGAMENTO'],
-                user_id=user.id,
-                categoria_produto=row['CATEGORIA']
-            )
+        # Renomear colunas para facilitar
+        df.rename(columns={
+            'NOME DO PRODUTO': 'nome_produto',
+            'DATA DE VENDA (DIA-MÊS-ANO)': 'data_venda',
+            'DATA DO PAGAMENTO (DIA-MÊS-ANO)': 'data_pagamento',
+            'VALOR BRUTO (R$)': 'valor_bruto',
+            'VALOR LIQUIDO (R$)': 'valor_liquido',
+            'TAXA (R$)': 'taxa',
+            'FORMA DE PAGAMENTO': 'forma_pagamento',
+            'CATEGORIA': 'categoria_produto'
+        }, inplace=True)
 
-            db_session.add(nova_planilha)
-            db_session.commit()
+        df['user_id'] = user.id
+        df['historic_dashboard_id'] = historic.id
+
+        # Converter o DataFrame em uma lista de dicionários
+        data_to_insert = df.to_dict(orient='records')
+
+        # Criar um objeto para cada linha
+        novas_planilhas = [PlanilhaModel(**row) for row in data_to_insert]
+
+        # Inserção em lote (maior performance)
+        db_session.bulk_save_objects(novas_planilhas)
+        db_session.commit()
     except Exception as e:
         return JSONResponse(content=str(e), status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -154,128 +174,31 @@ def create_planilha(
 
 @dashboard_router.get('/detail')
 def get_dashboard_detail(
+    date_selected: List[str] = Query(None, alias="date_selected[]"),
     token: str = Depends(oauth_scheme),
     db_session: Session = Depends(get_db_session)
-):
-        
+):  
+
     user = get_current_user(token=token, db=db_session)
-    planilhas = db_session.query(PanilhaModel).filter(PanilhaModel.user_id == user.id).order_by(PanilhaModel.data_venda).all()
 
-    unique_dates = set()
+    filters = [PlanilhaModel.user_id==user.id]
+    if date_selected:
+        filter_date = [datetime.strptime(date_selected, "%m/%Y") for date_selected in date_selected]
+        filter_date.sort()
+        filters.append(
+            func.extract('year', PlanilhaModel.data_venda).in_([date.year for date in filter_date]) &
+            func.extract('month', PlanilhaModel.data_venda).in_([date.month for date in filter_date])
+        )
     
-    for planilha in planilhas:
-        year_month = planilha.data_venda.strftime("%Y-%m")
-        unique_dates.add(year_month)
+    planilhas = db_session.query(PlanilhaModel).filter(and_(*filters)).order_by(PlanilhaModel.data_venda).all()
 
-    year_months = list(sorted(unique_dates))
+    data = get_data_dashboard(planilhas, user, db_session, filters)
 
-    faturamento_results = (
-        db_session.query(
-            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
-            func.sum(PanilhaModel.valor_bruto).label('total_valor_bruto'),
-            func.sum(PanilhaModel.valor_liquido).label('total_valor_liquido')
-        )
-        .filter(
-            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').in_(year_months)
-        )
-        .group_by(func.to_char(PanilhaModel.data_venda, 'YYYY-MM')).all()
-    )
-
-    forma_pagamento_results = (
-        db_session.query(
-            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
-            PanilhaModel.forma_pagamento,
-            func.sum(PanilhaModel.valor_bruto).label('total_valor')
-        )
-        .filter(
-            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').in_(year_months)
-        )
-        .group_by(func.to_char(PanilhaModel.data_venda, 'YYYY-MM'), PanilhaModel.forma_pagamento)
-        .all()
-    )
-
-    categoria_results = (
-        db_session.query(PanilhaModel.categoria_produto, func.count(PanilhaModel.id).label('total_vendas'))
-        .filter(PanilhaModel.user_id == user.id)
-        .group_by(PanilhaModel.categoria_produto).all()
-    )
-
-    vendas_por_mes_results = (
-        db_session.query(
-            func.count(PanilhaModel.id).label('total_vendas')
-        )
-        .filter(
-            func.to_char(PanilhaModel.data_venda, 'YYYY-MM').in_(year_months)
-        )
-        .group_by(func.to_char(PanilhaModel.data_venda, 'YYYY-MM')).all()
-    )
-
-    produtos_servicos_results = (
-        db_session.query(PanilhaModel.nome_produto, func.count(PanilhaModel.id).label('total_produto'))
-        .filter(PanilhaModel.user_id == user.id)
-        .group_by(PanilhaModel.nome_produto).all()
-    )
-
-    total_produtos_servico = sum(item.total_produto for item in produtos_servicos_results)
-
-    vendas_por_mes = list(reversed([res.total_vendas for res in vendas_por_mes_results]))
-
-    total_vendas = sum(item.total_vendas for item in categoria_results)
-
-    categorias_data = [
-        {
-            "label": item.categoria_produto,
-            "value": round((item.total_vendas / total_vendas) * 100, 2) if total_vendas > 0 else 0,
-            "id": item.categoria_produto
-        }
-        for item in categoria_results
-    ]
-
-    produto_servico_data = [
-        {
-            "label": item.nome_produto,
-            "value": round((item.total_produto / total_produtos_servico) * 100, 2) if total_produtos_servico > 0 else 0,
-            "id": item.nome_produto
-        }
-        for item in produtos_servicos_results
-    ]
-
-    bruto_values = []
-    liquido_values = []
-    
-    for result in faturamento_results:
-        bruto_values.append(result.total_valor_bruto)
-        liquido_values.append(result.total_valor_liquido)
-
-    dates_formatted = [datetime.strptime(date, "%Y-%m").strftime("%m/%Y") for date in year_months]
-
-    pagamento_data = {
-        'Pix': [],
-        'Crédito': [],
-        'Débito': [],
-        'Boleto': []
-    }
-
-    total_por_mes = {date: 0 for date in year_months}
-
-    for res in forma_pagamento_results:
-        total_por_mes[res.year_month] += res.total_valor
-
-    for date in year_months:
-        for metodo in pagamento_data.keys():
-            valor = next((res.total_valor for res in forma_pagamento_results if res.year_month == date and res.forma_pagamento == metodo), 0)
-            total_mes = total_por_mes[date]
-            porcentagem = (valor / total_mes * 100) if total_mes > 0 else 0
-            pagamento_data[metodo].append(porcentagem)
-
-    data = {
-        "faturamento": [{'bruto': bruto_values}, {'liquido': liquido_values}],
-        "vendas_por_forma_pagamento": pagamento_data,
-        "vendas_por_categoria": categorias_data,
-        "vendas_por_mes": vendas_por_mes,
-        "produtos_servicos": produto_servico_data,
-        "dates": dates_formatted
-    }
+    if date_selected:
+        date_selected.sort()
+        data['date_selected'] = date_selected
+    else:
+        data['date_selected'] = data['dates']
 
     return JSONResponse(
         content=data,

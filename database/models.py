@@ -10,14 +10,14 @@ class UserModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
-    panilhas = relationship("PanilhaModel", back_populates="user")
+    planilhas = relationship("PlanilhaModel", back_populates="user")
 
 
-class PanilhaModel(Base):
-    __tablename__ = "panilhas"
+class PlanilhaModel(Base):
+    __tablename__ = "planilhas"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    user = relationship("UserModel", back_populates="panilhas")
+    user = relationship("UserModel", back_populates="planilhas")
     data_venda = Column(Date, nullable=False)
     data_pagamento = Column(Date, nullable=False)
     valor_bruto = Column(Float, nullable=False)
@@ -26,3 +26,11 @@ class PanilhaModel(Base):
     forma_pagamento = Column(String, nullable=False)
     nome_produto = Column(String, nullable=False)
     categoria_produto = Column(String, nullable=False)
+    historic_dashboard_id = Column(Integer, ForeignKey("historic_dashboard.id"))
+
+
+class HistoricDashboard(Base):
+    __tablename__ = "historic_dashboard"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    data_upload_planilha = Column(Date, nullable=False)
