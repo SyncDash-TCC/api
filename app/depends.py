@@ -111,24 +111,58 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
         .group_by(PlanilhaModel.nome_produto).all()
     )
 
-    margem_lucro = (
+    dias_com_mais_vendas = (
         db_session.query(
-            func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
-            func.sum(PlanilhaModel.valor_liquido).label('total_liquido'),
-            func.sum(PlanilhaModel.valor_bruto).label('total_valor'),
-            ((func.sum(PlanilhaModel.valor_liquido) - func.sum(PlanilhaModel.valor_bruto)) / func.sum(PlanilhaModel.valor_bruto) * 100).label('margem_lucro_percentual')
+            func.to_char(PlanilhaModel.data_venda, 'Day').label('dia_semana'),
+            func.count(PlanilhaModel.id).label('total_vendas')
         )
-        .filter(
-            and_(*filters)
-        )
-        .group_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM'))
-        .order_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').asc())
+        .filter(and_(*filters))
+        .group_by(func.to_char(PlanilhaModel.data_venda, 'Day'))
+        .order_by(func.count(PlanilhaModel.id).desc())
         .all()
     )
 
-    margem_lucro_percentage = []
-    for item in margem_lucro:
-        margem_lucro_percentage.append(round(item.margem_lucro_percentual, 2))
+    faturamento_liquido_total = (
+        db_session.query(func.sum(PlanilhaModel.valor_liquido).filter(and_(*filters)).label('faturamento_liquido_total'))
+    )
+
+    faturamento_bruto_total = (
+        db_session.query(func.sum(PlanilhaModel.valor_bruto).filter(and_(*filters)).label('faturamento_bruto_total'))
+    )
+
+    vendas_total = (
+        db_session.query(func.count(PlanilhaModel.id).filter(and_(*filters)).label('vendas_total'))
+    )
+
+    produto_mais_vendido = (
+        db_session.query(PlanilhaModel.nome_produto, func.count(PlanilhaModel.id).label('total_produto'))
+        .filter(and_(*filters))
+        .group_by(PlanilhaModel.nome_produto)
+        .order_by(func.count(PlanilhaModel.id).desc())
+        .first()
+    )
+
+    dias_semana_pt = {
+        "Sunday": "Domingo",
+        "Monday": "Segunda",
+        "Tuesday": "Terça",
+        "Wednesday": "Quarta",
+        "Thursday": "Quinta",
+        "Friday": "Sexta",
+        "Saturday": "Sábado",
+    }
+
+    ordem_dias_brasileira = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
+
+    dias_com_mais_vendas_formatado = [
+        {"dia": dias_semana_pt[dia.strip()], "total_vendas": total}
+        for dia, total in dias_com_mais_vendas
+    ]
+
+    dias_com_mais_vendas_ordenado = sorted(
+        dias_com_mais_vendas_formatado,
+        key=lambda dia: ordem_dias_brasileira.index(dia["dia"])
+    )
 
     total_produtos_servico = sum(item.total_produto for item in produtos_servicos_results)
 
@@ -218,7 +252,11 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
         "vendas_por_categoria": categorias_data,
         "vendas_por_mes": vendas_por_mes,
         "produtos_servicos": produto_servico_data,
-        "margem_lucro_porcentagem": margem_lucro_percentage,
+        "dias_com_mais_venda": dias_com_mais_vendas_ordenado,
+        "faturamento_liquido_total": faturamento_liquido_total.first().faturamento_liquido_total,
+        "faturamento_bruto_total": faturamento_bruto_total.first().faturamento_bruto_total,
+        "vendas_total": vendas_total.first().vendas_total,
+        "produto_mais_vendido": produto_mais_vendido.nome_produto if produto_mais_vendido else "-",
         "dates": dates_formatted,
         "date_selected": [datetime.strptime(date, '%Y-%m').strftime('%m/%Y') for date in year_months]
     }
