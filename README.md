@@ -1,4 +1,4 @@
-# SISDASH API
+# SyncDash
 
 # How to run
 
