@@ -6,8 +6,6 @@ COPY requirements.txt /app/
 
 RUN python -m pip install --upgrade pipenv
 
-RUN pipenv install --deploy --ignore-pipfile
-
 COPY . /app/
 
 RUN apt-get update && apt-get install -y make gcc libpq-dev && apt-get clean
