@@ -22,3 +22,9 @@ makemigrations:
 
 migrate:
 	docker-compose exec api pipenv run alembic upgrade head
+
+makemigrations-prod:
+	pipenv run alembic revision --autogenerate -m "Initial migration"
+
+migrate-prod:
+	pipenv run alembic upgrade head
