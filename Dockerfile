@@ -17,4 +17,4 @@ RUN apt-get update && apt-get install -y make
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "make create_db && pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "make create_db && make makemigrations && make migrate && pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"]
