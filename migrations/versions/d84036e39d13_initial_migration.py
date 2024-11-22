@@ -1,8 +1,8 @@
-"""replace username with email
+"""Initial migration
 
-Revision ID: c87e2449b2ef
-Revises: 4f6e554eea29
-Create Date: 2024-09-20 22:50:16.088523
+Revision ID: d84036e39d13
+Revises: 
+Create Date: 2024-11-22 02:54:10.475841
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'c87e2449b2ef'
-down_revision: Union[str, None] = '4f6e554eea29'
+revision: str = 'd84036e39d13'
+down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
