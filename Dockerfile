@@ -19,8 +19,11 @@ RUN pipenv install flake8 --dev
 
 # Instalar make se necessário
 RUN apt-get update && apt-get install -y make
+RUN make create_db
+RUN makemigrations
+RUN migrate
 
 EXPOSE 8000
 
 # Execute o aplicativo com uvicorn
-CMD ["sh", "-c", "make create_db && pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"]
+CMD ["pipenv", "run", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
