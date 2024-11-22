@@ -40,3 +40,9 @@ services:
         depends_on:
             - postgresql
         command: pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+        networks:
+            - sisdash_network
+  
+networks:
+  sisdash_network:
+    driver: bridge
