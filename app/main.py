@@ -5,7 +5,7 @@ from app.routes import user_router, planilha_router, dashboard_router, historico
 app = FastAPI()
 
 origins = [
-    "http://localhost:3000",
+    "https://ui-6kpo.onrender.com",
 ]
 
 app.add_middleware(
