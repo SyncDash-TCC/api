@@ -19,9 +19,9 @@ RUN pipenv install flake8 --dev
 
 # Instalar make se necessário
 RUN apt-get update && apt-get install -y make
-RUN make create_db
-RUN makemigrations
-RUN migrate
+RUN pipenv run alembic upgrade head
+RUN docker-compose exec api pipenv run alembic revision --autogenerate -m "replace username with email"
+RUN docker-compose exec api pipenv run alembic upgrade head
 
 EXPOSE 8000
 
