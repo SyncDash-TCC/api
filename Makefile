@@ -18,7 +18,7 @@ linter:
 	docker compose run api flake8
 
 makemigrations:
-	docker-compose exec api pipenv run alembic revision --autogenerate -m "replace username with email"
+	docker-compose exec api pipenv run alembic revision --autogenerate -m "Initial migration"
 
 migrate:
 	docker-compose exec api pipenv run alembic upgrade head
