@@ -17,7 +17,10 @@ COPY . /app/
 RUN mkdir -p collected_static/ && mkdir -p media/public/ && mkdir -p media/private/
 RUN pipenv install flake8 --dev
 
+# Instalar make se necessário
+RUN apt-get update && apt-get install -y make
+
 EXPOSE 8000
 
 # Execute o aplicativo com uvicorn
-CMD ["pipenv", "run", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "make create_db && pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"]
