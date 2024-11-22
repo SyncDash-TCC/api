@@ -9,7 +9,7 @@ build:
 	docker compose build
 
 create_db:
-	pipenv alembic upgrade head
+	pipenv run alembic upgrade head
 
 bash:
 	docker exec -it api bash
