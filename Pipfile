@@ -8,7 +8,6 @@ fastapi = "*"
 uvicorn = "*"
 sqlalchemy = "*"
 asyncpg = "*"
-flake8-debugger = "*"
 psycopg2-binary = "*"
 alembic = "*"
 passlib = "*"
@@ -18,6 +17,10 @@ pandas = "*"
 openpyxl = "*"
 
 [dev-packages]
+flake8-debugger = "*"
 
 [requires]
-python_version = "3.10"
+python_version = "3.12"
+
+[scripts]
+alembic = "alembic"
