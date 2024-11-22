@@ -1,10 +1,10 @@
-FROM python:3.12-slim
+FROM python:3.12
 
 WORKDIR /app
 
 COPY requirements.txt /app/
 
-RUN python -m pip install --upgrade pipenv
+RUN python -m pip install --upgrade pipenv psycopg2
 
 COPY . /app/
 
