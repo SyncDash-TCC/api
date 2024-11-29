@@ -1,17 +1,16 @@
 import os
-import locale
 import pandas as pd
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from jose import JWTError
 from sqlalchemy.orm import Session
-from app.schemas import LoginRequest, PlanilhaCreate, User
+from app.schemas import LoginRequest, PlanilhaCreate, User, UpdateVendaRequest
 from app.depends import format_currency, get_current_user, get_data_dashboard, get_db_session
 from app.auth_user import UserUseCases
 from fastapi.responses import JSONResponse
 from app.depends import oauth_scheme
 from jose import jwt
-from sqlalchemy import and_, func, text
+from sqlalchemy import and_, func
 from typing import List
 
 from database.models import HistoricDashboard, PlanilhaModel, UserModel
@@ -307,6 +306,34 @@ def get_historico_detail(
 
     return JSONResponse(
         content=data,
+        status_code=status.HTTP_200_OK
+    )
+
+
+@planilha_router.put('/update')
+def update_vendas(
+    data_request: UpdateVendaRequest,
+    token: str = Depends(oauth_scheme),
+    db_session: Session = Depends(get_db_session)
+):
+
+    user = get_current_user(token=token, db=db_session)
+    
+    planilha = db_session.query(PlanilhaModel).filter(
+        PlanilhaModel.id == data_request.id,
+        PlanilhaModel.user_id == user.id
+    ).first()
+
+    for field, value in data_request.dict(exclude_unset=True).items():
+        if field == "taxa":
+            planilha.taxa = value if value is not None else planilha.valor_bruto - planilha.valor_liquido
+        else:
+            setattr(planilha, field, value)
+
+    db_session.commit()
+
+    return JSONResponse(
+        content={"message": "Dados atualizados com sucesso!"},
         status_code=status.HTTP_200_OK
     )
 

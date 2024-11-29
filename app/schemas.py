@@ -34,3 +34,16 @@ class PlanilhaCreate(BaseModel):
     taxa: str
     forma_pagamento: str
     categoria: str
+
+
+
+class UpdateVendaRequest(BaseModel):
+    id: int
+    nome_produto: str
+    data_venda: str
+    data_pagamento: str
+    valor_bruto: float
+    valor_liquido: float
+    taxa: float
+    forma_pagamento: str
+    categoria_produto: str

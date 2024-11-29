@@ -6,6 +6,7 @@ app = FastAPI()
 
 origins = [
     "https://ui-6kpo.onrender.com",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
