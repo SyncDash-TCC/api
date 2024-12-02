@@ -1,3 +1,4 @@
+import pytz
 import os
 import pandas as pd
 from datetime import datetime
@@ -124,9 +125,12 @@ def create_planilha(
     
     user = get_current_user(token=token, db=db_session)
 
+    brasilia_tz = pytz.timezone('America/Sao_Paulo')
+    now_in_brasilia = datetime.now(brasilia_tz).replace(tzinfo=None)  
+
     historic = HistoricDashboard(
         user_id=user.id,
-        data_upload_planilha=datetime.now()
+        data_upload_planilha=now_in_brasilia
     )
 
     db_session.add(historic)
