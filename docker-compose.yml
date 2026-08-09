@@ -11,6 +11,15 @@ services:
             POSTGRES_DB: ${PG_DB}
         volumes:
             - /var/cache/pgdata:/var/lib/postgresql/data
+        healthcheck:
+            # O container "start" quase instantâneo, mas o Postgres em si
+            # ainda leva um instante pra aceitar conexões — sem isso, quem
+            # depende deste serviço (api, migrations no CI) pode tentar
+            # conectar cedo demais e cair em "Connection refused".
+            test: ["CMD-SHELL", "pg_isready -U ${PG_USER}"]
+            interval: 2s
+            timeout: 3s
+            retries: 15
 
     pgadmin:
         image: dpage/pgadmin4
@@ -43,8 +52,9 @@ services:
             SECRET_KEY: ${SECRET_KEY}
             ALGORITHM: ${ALGORITHM}
         volumes:
-            - .:/app 
+            - .:/app
         depends_on:
-            - postgresql
+            postgresql:
+                condition: service_healthy
         command: pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
   
