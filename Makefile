@@ -15,7 +15,10 @@ bash:
 	docker exec -it api bash
 
 linter:
-	docker compose run api flake8
+	docker compose run api pipenv run flake8
+
+test:
+	docker compose run api pipenv run pytest
 
 makemigrations:
 	docker-compose exec api pipenv run alembic revision --autogenerate -m "Initial migration"

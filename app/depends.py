@@ -4,7 +4,7 @@ from fastapi import Depends, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
-from database.connection import Session
+from database.connection import SessionLocal
 from app.auth_user import UserUseCases
 from database.models import PlanilhaModel, UserModel
 from fastapi.exceptions import HTTPException
@@ -16,7 +16,7 @@ oauth_scheme = OAuth2PasswordBearer(tokenUrl='/auth/detail')
 
 def get_db_session():
     try:
-        session = Session()
+        session = SessionLocal()
         yield session
     finally:
         session.close()
@@ -24,22 +24,25 @@ def get_db_session():
 
 def token_verifier(
     db_session: Session = Depends(get_db_session),
-    token = Depends(oauth_scheme)
-):  
+    token=Depends(oauth_scheme)
+):
     uc = UserUseCases(db_session=db_session)
     uc.verify_token(access_token=token)
 
     return uc
 
 
-def get_current_user(token: str = Depends(oauth_scheme), db: Session = Depends(get_db_session)):
+def get_current_user(token: str = Depends(oauth_scheme),
+                     db: Session = Depends(get_db_session)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=[os.getenv("ALGORITHM")])
+        payload = jwt.decode(
+            token, os.getenv("SECRET_KEY"), algorithms=[
+                os.getenv("ALGORITHM")])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
@@ -55,7 +58,8 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
 
     faturamento_results = (
         db_session.query(
-            func.date_trunc('month', PlanilhaModel.data_venda).label('year_month'),
+            func.date_trunc(
+                'month', PlanilhaModel.data_venda).label('year_month'),
             func.sum(PlanilhaModel.valor_bruto).label('total_valor_bruto'),
             func.sum(PlanilhaModel.valor_liquido).label('total_valor_liquido')
         )
@@ -67,7 +71,9 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
 
     forma_pagamento_results = (
         db_session.query(
-            func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
+            func.to_char(
+                PlanilhaModel.data_venda,
+                'YYYY-MM').label('year_month'),
             PlanilhaModel.forma_pagamento,
             func.sum(PlanilhaModel.valor_bruto).label('total_valor')
         )
@@ -81,14 +87,17 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
     year_months = sorted({res.year_month for res in forma_pagamento_results})
 
     categoria_results = (
-        db_session.query(PlanilhaModel.categoria_produto, func.count(PlanilhaModel.id).label('total_vendas'))
+        db_session.query(PlanilhaModel.categoria_produto,
+                         func.count(PlanilhaModel.id).label('total_vendas'))
         .filter(and_(*filters))
         .group_by(PlanilhaModel.categoria_produto).all()
     )
 
     vendas_por_mes_results = (
         db_session.query(
-            func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').label('year_month'),
+            func.to_char(
+                PlanilhaModel.data_venda,
+                'YYYY-MM').label('year_month'),
             func.count(PlanilhaModel.id).label('total_vendas')
         )
         .filter(
@@ -96,30 +105,38 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
         )
         .group_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM'))
         .order_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM').asc())
-        .all() 
+        .all()
     )
 
     produtos_servicos_results = (
-        db_session.query(PlanilhaModel.nome_produto, func.count(PlanilhaModel.id).label('total_produto'))
+        db_session.query(
+            PlanilhaModel.nome_produto, func.count(
+                PlanilhaModel.id).label('total_produto'))
         .filter(and_(*filters))
         .group_by(PlanilhaModel.nome_produto).all()
     )
 
+    # EXTRACT(dow ...) devolve um número (0=domingo..6=sábado), independente
+    # do locale configurado no Postgres — to_char(..., 'Day') dependia do
+    # lc_time do servidor e quebrava com KeyError se o nome do dia não
+    # viesse em inglês.
     dias_com_mais_vendas = (
         db_session.query(
-            func.to_char(PlanilhaModel.data_venda, 'Day').label('dia_semana'),
+            func.extract('dow', PlanilhaModel.data_venda).label('dia_semana'),
             func.count(PlanilhaModel.id).label('total_vendas')
         )
         .filter(and_(*filters))
-        .group_by(func.to_char(PlanilhaModel.data_venda, 'Day'))
+        .group_by(func.extract('dow', PlanilhaModel.data_venda))
         .order_by(func.count(PlanilhaModel.id).desc())
         .all()
     )
 
     totals = (
         db_session.query(
-            func.sum(PlanilhaModel.valor_liquido).label('faturamento_liquido_total'),
-            func.sum(PlanilhaModel.valor_bruto).label('faturamento_bruto_total'),
+            func.sum(PlanilhaModel.valor_liquido).label(
+                'faturamento_liquido_total'),
+            func.sum(PlanilhaModel.valor_bruto).label(
+                'faturamento_bruto_total'),
             func.count(PlanilhaModel.id).label('vendas_total'),
         )
         .filter(and_(*filters))
@@ -127,27 +144,30 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
     )
 
     produto_mais_vendido = (
-        db_session.query(PlanilhaModel.nome_produto, func.count(PlanilhaModel.id).label('total_produto'))
+        db_session.query(
+            PlanilhaModel.nome_produto, func.count(
+                PlanilhaModel.id).label('total_produto'))
         .filter(and_(*filters))
         .group_by(PlanilhaModel.nome_produto)
         .order_by(func.count(PlanilhaModel.id).desc())
         .first()
     )
 
-    dias_semana_pt = {
-        "Sunday": "Domingo",
-        "Monday": "Segunda",
-        "Tuesday": "Terça",
-        "Wednesday": "Quarta",
-        "Thursday": "Quinta",
-        "Friday": "Sexta",
-        "Saturday": "Sábado",
-    }
+    # Índice 0 = domingo .. 6 = sábado, na mesma ordem que EXTRACT(dow)
+    # devolve.
+    dias_semana_pt = [
+        "Domingo",
+        "Segunda",
+        "Terça",
+        "Quarta",
+        "Quinta",
+        "Sexta",
+        "Sábado"]
 
-    ordem_dias_brasileira = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
+    ordem_dias_brasileira = dias_semana_pt
 
     dias_com_mais_vendas_formatado = [
-        {"dia": dias_semana_pt[dia.strip()], "total_vendas": total}
+        {"dia": dias_semana_pt[int(dia)], "total_vendas": total}
         for dia, total in dias_com_mais_vendas
     ]
 
@@ -156,7 +176,8 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
         key=lambda dia: ordem_dias_brasileira.index(dia["dia"])
     )
 
-    total_produtos_servico = sum(item.total_produto for item in produtos_servicos_results)
+    total_produtos_servico = sum(
+        item.total_produto for item in produtos_servicos_results)
 
     vendas_por_mes = list([res.total_vendas for res in vendas_por_mes_results])
 
@@ -173,7 +194,8 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
 
     if len(categoria_results) > 6:
         outros_total = sum(
-            round((item.total_vendas / total_vendas) * 100, 2) if total_vendas > 0 else 0
+            round((item.total_vendas / total_vendas)
+                  * 100, 2) if total_vendas > 0 else 0
             for item in categoria_results[6:]
         )
         categorias_data.append({
@@ -185,7 +207,8 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
     produto_servico_data = [
         {
             "label": item.nome_produto,
-            "value": round((item.total_produto / total_produtos_servico) * 100, 2) if total_produtos_servico > 0 else 0,
+            "value": round((item.total_produto / total_produtos_servico) * 100, 2)
+            if total_produtos_servico > 0 else 0,
             "id": item.nome_produto
         }
         for item in produtos_servicos_results[:6]
@@ -193,7 +216,8 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
 
     if len(produtos_servicos_results) > 6:
         outros_total = sum(
-            round((item.total_produto / total_produtos_servico) * 100, 2) if total_vendas > 0 else 0
+            round((item.total_produto / total_produtos_servico)
+                  * 100, 2) if total_vendas > 0 else 0
             for item in produtos_servicos_results[6:]
         )
         produto_servico_data.append({
@@ -204,12 +228,14 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
 
     bruto_values = []
     liquido_values = []
-    
+
     for result in faturamento_results.order_by('year_month').all():
         bruto_values.append(round(result.total_valor_bruto, 2))
         liquido_values.append(round(result.total_valor_liquido, 2))
 
-    dates = db_session.query(func.date_trunc('month', PlanilhaModel.data_venda).label('month_year'))\
+    dates = db_session.query(
+        func.date_trunc('month', PlanilhaModel.data_venda).label('month_year')
+    )\
         .filter(PlanilhaModel.user_id == user.id)\
         .distinct()\
         .order_by(func.date_trunc('month', PlanilhaModel.data_venda))\
@@ -231,7 +257,8 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
 
     for res in forma_pagamento_results:
         total_por_mes[res.year_month] += res.total_valor
-        valor_por_mes_metodo[(res.year_month, res.forma_pagamento)] = res.total_valor
+        valor_por_mes_metodo[(res.year_month,
+                              res.forma_pagamento)] = res.total_valor
 
     for date in year_months:
         total_mes = total_por_mes[date]
@@ -250,10 +277,17 @@ def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
         "faturamento_liquido_total": totals.faturamento_liquido_total,
         "faturamento_bruto_total": totals.faturamento_bruto_total,
         "vendas_total": totals.vendas_total,
-        "produto_mais_vendido": produto_mais_vendido.nome_produto if produto_mais_vendido else "-",
+        "produto_mais_vendido": (
+            produto_mais_vendido.nome_produto if produto_mais_vendido else "-"
+        ),
         "dates": dates_formatted,
-        "date_selected": [datetime.strptime(date, '%Y-%m').strftime('%m/%Y') for date in year_months]
+        "date_selected": [
+            datetime.strptime(date, '%Y-%m').strftime('%m/%Y')
+            for date in year_months
+        ]
     }
 
+
 def format_currency(value: float) -> str:
-    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {value:,.2f}".replace(
+        ",", "X").replace(".", ",").replace("X", ".")

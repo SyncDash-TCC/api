@@ -35,6 +35,13 @@ services:
             POSTGRES_PASSWORD: ${PG_PASS}
             POSTGRES_USER: ${PG_USER}
             POSTGRES_DB: ${PG_DB}
+            # Antes eram lidas só via auto-load do pipenv a partir do .env
+            # local (funciona em dev, mas silenciosamente vazio em CI onde
+            # não existe .env — passá-las explícito faz elas virem de
+            # qualquer .env local OU de env vars exportadas no shell/CI).
+            DATABASE_URL: ${DATABASE_URL}
+            SECRET_KEY: ${SECRET_KEY}
+            ALGORITHM: ${ALGORITHM}
         volumes:
             - .:/app 
         depends_on:

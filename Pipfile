@@ -11,13 +11,22 @@ asyncpg = "*"
 psycopg2-binary = "*"
 alembic = "*"
 passlib = "*"
+# passlib 1.7.4 (última release, projeto sem manutenção ativa) não é
+# compatível com bcrypt>=4.1 (remove o atributo `__about__` que o passlib
+# lê pra detectar a versão do backend) — trava nessa faixa até migrar de
+# lib de hashing.
+bcrypt = "<4.1"
 python-jose = "*"
 python-multipart = "*"
 pandas = "*"
 openpyxl = "*"
+pytz = "*"
 
 [dev-packages]
+flake8 = "*"
 flake8-debugger = "*"
+pytest = "*"
+httpx = "*"
 
 [requires]
 python_version = "3.12"

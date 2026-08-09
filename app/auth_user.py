@@ -13,13 +13,18 @@ from app.schemas import User
 SECRET_KEY = getenv('SECRET_KEY')
 ALGORITHM = getenv('ALGORITHM')
 
-crypt_context = CryptContext(schemes=['sha256_crypt'])
+# bcrypt é o esquema "ativo" pra hashes novos; sha256_crypt continua aceito
+# (schemes) só pra validar hashes antigos já gravados no banco, mas fica
+# marcado deprecated pra que verify() sinalize precisar de rehash.
+crypt_context = CryptContext(
+    schemes=['bcrypt', 'sha256_crypt'],
+    deprecated=['sha256_crypt'],
+)
 
 
 class UserUseCases:
     def __init__(self, db_session: Session):
         self.db_session = db_session
-
 
     def user_register(self, user: User):
         user_model = UserModel(
@@ -36,20 +41,28 @@ class UserUseCases:
             )
 
     def user_login(self, user: User, expires_in: int = 300):
-        user_on_db = self.db_session.query(UserModel).filter_by(username=user.username).first()
+        user_on_db = self.db_session.query(
+            UserModel).filter_by(username=user.username).first()
 
         if user_on_db is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail='Invalid username or password'
             )
-        
+
         if not crypt_context.verify(user.password, user_on_db.password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail='Invalid username or password'
             )
-        
+
+        # Migração transparente: se o hash gravado usa um esquema deprecated
+        # (sha256_crypt), regrava com o esquema ativo (bcrypt) agora que já
+        # temos a senha em texto puro validada.
+        if crypt_context.needs_update(user_on_db.password):
+            user_on_db.password = crypt_context.hash(user.password)
+            self.db_session.commit()
+
         exp = datetime.utcnow() + timedelta(minutes=expires_in)
 
         payload = {
@@ -73,8 +86,9 @@ class UserUseCases:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail='Invalid access token'
             )
-        
-        user_on_db = self.db_session.query(UserModel).filter_by(username=data['sub']).first()
+
+        user_on_db = self.db_session.query(
+            UserModel).filter_by(username=data['sub']).first()
 
         if user_on_db is None:
             raise HTTPException(
