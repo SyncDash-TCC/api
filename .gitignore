@@ -18,8 +18,9 @@ __pycache__/
 # Virtual Environment
 venv/
 .env/
-pipenv.lock
-Pipfile.lock
+# Pipfile.lock é versionado de propósito — é a única trava de versão de
+# dependências do projeto (requirements.txt foi removido; ver Dockerfile).
+# Não ignore.
 
 # Logs
 *.log

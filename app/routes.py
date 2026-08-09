@@ -1,3 +1,4 @@
+import logging
 import pytz
 import os
 import pandas as pd
@@ -17,6 +18,8 @@ from typing import List
 from database.models import HistoricDashboard, PlanilhaModel, UserModel
 
 
+logger = logging.getLogger(__name__)
+
 user_router = APIRouter(prefix='/auth')
 planilha_router = APIRouter(prefix='/planilha')
 dashboard_router = APIRouter(prefix='/dashboard')
@@ -34,7 +37,6 @@ def user_register(
         content={"message": "User created"},
         status_code=status.HTTP_201_CREATED
     )
-
 
 
 @user_router.post('/login')
@@ -70,7 +72,9 @@ def get_current_user_details(
     )
     try:
         # Decodifica o token JWT usando a chave secreta e algoritmo
-        payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=[os.getenv("ALGORITHM")])
+        payload = jwt.decode(
+            token, os.getenv("SECRET_KEY"), algorithms=[
+                os.getenv("ALGORITHM")])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
@@ -78,12 +82,14 @@ def get_current_user_details(
         raise credentials_exception
 
     # Verifica se o usuário existe no banco de dados
-    user = db_session.query(UserModel).filter(UserModel.username == username).first()
+    user = db_session.query(UserModel).filter(
+        UserModel.username == username).first()
     if user is None:
         raise credentials_exception
 
     # Retorna o nome do usuário logado
-    return JSONResponse(content={"username": user.username}, status_code=status.HTTP_200_OK)
+    return JSONResponse(
+        content={"username": user.username}, status_code=status.HTTP_200_OK)
 
 
 @planilha_router.post('/register')
@@ -92,9 +98,9 @@ def create_planilha(
     token: str = Depends(oauth_scheme),
     db_session: Session = Depends(get_db_session)
 ):
-    
+
     user = get_current_user(token=token, db=db_session)
-    
+
     nova_planilha = PlanilhaModel(
         nome_produto=planilha.nome_produto,
         data_venda=planilha.data_venda,
@@ -107,8 +113,18 @@ def create_planilha(
         categoria_produto=planilha.categoria
     )
 
-    db_session.add(nova_planilha)
-    db_session.commit()
+    try:
+        db_session.add(nova_planilha)
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        logger.exception(
+            "Falha ao inserir planilha manual para o usuário %s", user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não foi possível salvar os dados. Verifique os valores enviados."
+        )
 
     return JSONResponse(
         content={"message": "Dados inseridos com sucesso!"},
@@ -116,33 +132,37 @@ def create_planilha(
     )
 
 
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
+
+
 @planilha_router.put('/upload')
-def create_planilha(
+def upload_planilha(
     selected_file: UploadFile = File(...),
     token: str = Depends(oauth_scheme),
     db_session: Session = Depends(get_db_session)
 ):
-    
+
     user = get_current_user(token=token, db=db_session)
 
-    brasilia_tz = pytz.timezone('America/Sao_Paulo')
-    now_in_brasilia = datetime.now(brasilia_tz).replace(tzinfo=None)  
+    # Evita carregar arquivos absurdamente grandes em memória inteira via
+    # pandas (risco real de estourar RAM num plano free). `.size` é
+    # populado pelo Starlette conforme o arquivo é recebido.
+    file_size = getattr(selected_file, "size", None)
+    if file_size is not None and file_size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Arquivo maior que o limite de {MAX_UPLOAD_SIZE_MB}MB."
+        )
 
-    historic = HistoricDashboard(
-        user_id=user.id,
-        data_upload_planilha=now_in_brasilia
-    )
-
-    db_session.add(historic)
-    db_session.commit()
-    
     try:
-        # Exel -> DataFrame
+        # Excel -> DataFrame
         df = pd.read_excel(selected_file.file, skiprows=range(0, 11))
 
-        # Coverter datas para o formato correto
-        df['DATA DE VENDA (DIA-MÊS-ANO)'] = pd.to_datetime(df['DATA DE VENDA (DIA-MÊS-ANO)'], format='%d-%m-%Y')
-        df['DATA DO PAGAMENTO (DIA-MÊS-ANO)'] = pd.to_datetime(df['DATA DO PAGAMENTO (DIA-MÊS-ANO)'], format='%d-%m-%Y')
+        # Converter datas para o formato correto
+        df['DATA DE VENDA (DIA-MÊS-ANO)'] = pd.to_datetime(
+            df['DATA DE VENDA (DIA-MÊS-ANO)'], format='%d-%m-%Y')
+        df['DATA DO PAGAMENTO (DIA-MÊS-ANO)'] = pd.to_datetime(
+            df['DATA DO PAGAMENTO (DIA-MÊS-ANO)'], format='%d-%m-%Y')
 
         # Renomear colunas para facilitar
         df.rename(columns={
@@ -157,19 +177,51 @@ def create_planilha(
         }, inplace=True)
 
         df['user_id'] = user.id
-        df['historic_dashboard_id'] = historic.id
 
         # Converter o DataFrame em uma lista de dicionários
         data_to_insert = df.to_dict(orient='records')
 
         # Criar um objeto para cada linha
         novas_planilhas = [PlanilhaModel(**row) for row in data_to_insert]
+    except Exception:
+        logger.exception(
+            "Falha ao processar planilha enviada pelo usuário %s", user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não foi possível ler a planilha. Confira se ela segue o modelo esperado."
+        )
+
+    # Histórico só é criado (e as linhas só são inseridas) depois que o
+    # parsing deu certo — antes disso o registro de histórico era criado
+    # mesmo quando a planilha era inválida, deixando um "upload vazio" órfão.
+    brasilia_tz = pytz.timezone('America/Sao_Paulo')
+    now_in_brasilia = datetime.now(brasilia_tz).replace(tzinfo=None)
+
+    historic = HistoricDashboard(
+        user_id=user.id,
+        data_upload_planilha=now_in_brasilia
+    )
+
+    try:
+        db_session.add(historic)
+        db_session.flush()
+
+        for planilha in novas_planilhas:
+            planilha.historic_dashboard_id = historic.id
 
         # Inserção em lote (maior performance)
         db_session.bulk_save_objects(novas_planilhas)
         db_session.commit()
-    except Exception as e:
-        return JSONResponse(content=str(e), status_code=status.HTTP_400_BAD_REQUEST)
+    except Exception:
+        db_session.rollback()
+        logger.exception(
+            "Falha ao salvar planilha processada do usuário %s", user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não foi possível salvar os dados. Verifique os valores enviados."
+        )
 
     return JSONResponse(
         content={"message": "Dados inseridos com sucesso!"},
@@ -183,17 +235,22 @@ def get_dashboard_detail(
     id_historico: int = Query(None, alias="id_historico"),
     token: str = Depends(oauth_scheme),
     db_session: Session = Depends(get_db_session)
-):  
+):
 
     user = get_current_user(token=token, db=db_session)
 
-    filters = [PlanilhaModel.user_id==user.id]
+    filters = [PlanilhaModel.user_id == user.id]
     if date_selected:
-        filter_date = [datetime.strptime(date, "%m/%Y") for date in date_selected]
+        filter_date = [datetime.strptime(date, "%m/%Y")
+                       for date in date_selected]
         filter_date.sort()
         filters.append(
-            func.extract('year', PlanilhaModel.data_venda).in_([date.year for date in filter_date]) &
-            func.extract('month', PlanilhaModel.data_venda).in_([date.month for date in filter_date])
+            func.extract('year', PlanilhaModel.data_venda).in_(
+                [date.year for date in filter_date]
+            ) &
+            func.extract('month', PlanilhaModel.data_venda).in_(
+                [date.month for date in filter_date]
+            )
         )
 
     if id_historico:
@@ -217,13 +274,18 @@ def get_planilha_detail(
 
     user = get_current_user(token=token, db=db_session)
 
-    filters = [PlanilhaModel.user_id==user.id]
+    filters = [PlanilhaModel.user_id == user.id]
     if date_selected:
-        filter_date = [datetime.strptime(date, "%m/%Y") for date in date_selected]
+        filter_date = [datetime.strptime(date, "%m/%Y")
+                       for date in date_selected]
         filter_date.sort()
         filters.append(
-            func.extract('year', PlanilhaModel.data_venda).in_([date.year for date in filter_date]) &
-            func.extract('month', PlanilhaModel.data_venda).in_([date.month for date in filter_date])
+            func.extract('year', PlanilhaModel.data_venda).in_(
+                [date.year for date in filter_date]
+            ) &
+            func.extract('month', PlanilhaModel.data_venda).in_(
+                [date.month for date in filter_date]
+            )
         )
 
     if id_historico:
@@ -232,8 +294,12 @@ def get_planilha_detail(
     planilhas = (
         db_session.query(
             PlanilhaModel.id,
-            func.to_char(PlanilhaModel.data_venda, 'DD/MM/YYYY').label('data_venda'),
-            func.to_char(PlanilhaModel.data_pagamento, 'DD/MM/YYYY').label('data_pagamento'),
+            func.to_char(
+                PlanilhaModel.data_venda,
+                'DD/MM/YYYY').label('data_venda'),
+            func.to_char(
+                PlanilhaModel.data_pagamento,
+                'DD/MM/YYYY').label('data_pagamento'),
             PlanilhaModel.valor_bruto,
             PlanilhaModel.valor_liquido,
             PlanilhaModel.taxa,
@@ -246,7 +312,9 @@ def get_planilha_detail(
         .order_by(PlanilhaModel.data_venda).all()
     )
 
-    dates = db_session.query(func.date_trunc('month', PlanilhaModel.data_venda).label('month_year'))\
+    dates = db_session.query(
+        func.date_trunc('month', PlanilhaModel.data_venda).label('month_year')
+    )\
         .filter(PlanilhaModel.user_id == user.id)\
         .distinct()\
         .order_by(func.date_trunc('month', PlanilhaModel.data_venda))\
@@ -277,7 +345,8 @@ def get_planilha_detail(
     }
 
     if date_selected:
-        data['date_selected'] = list(dict.fromkeys(date.strftime("%m/%Y") for date in filter_date))
+        data['date_selected'] = list(dict.fromkeys(
+            date.strftime("%m/%Y") for date in filter_date))
     else:
         data['date_selected'] = dates_formatted
 
@@ -295,7 +364,8 @@ def get_historico_detail(
 
     user = get_current_user(token=token, db=db_session)
 
-    historico = db_session.query(HistoricDashboard).filter(HistoricDashboard.user_id == user.id).all()
+    historico = db_session.query(HistoricDashboard).filter(
+        HistoricDashboard.user_id == user.id).all()
 
     data = [
         {
@@ -320,15 +390,22 @@ def update_vendas(
 ):
 
     user = get_current_user(token=token, db=db_session)
-    
+
     planilha = db_session.query(PlanilhaModel).filter(
         PlanilhaModel.id == data_request.id,
         PlanilhaModel.user_id == user.id
     ).first()
 
+    if planilha is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Planilha não encontrada"
+        )
+
     for field, value in data_request.dict(exclude_unset=True).items():
         if field == "taxa":
-            planilha.taxa = value if value is not None else planilha.valor_bruto - planilha.valor_liquido
+            planilha.taxa = value if value is not None else planilha.valor_bruto - \
+                planilha.valor_liquido
         else:
             setattr(planilha, field, value)
 
@@ -338,11 +415,3 @@ def update_vendas(
         content={"message": "Dados atualizados com sucesso!"},
         status_code=status.HTTP_200_OK
     )
-
-
-
-    
-
-
-    
-        

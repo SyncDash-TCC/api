@@ -2,9 +2,15 @@ on:
   pull_request:
     branches:
       - main
+  # Roda de novo depois que o PR é mergeado (push direto em main também cai
+  # aqui) — pega problemas que só aparecem no resultado do merge em si
+  # (duas PRs que passam isoladas mas conflitam entre si), não só na PR.
+  push:
+    branches:
+      - main
 
 concurrency:
-    group: ${{ github.head_ref }}
+    group: ${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 
@@ -15,13 +21,37 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
 
+    env:
+      PG_USER: ci
+      PG_PASS: ci
+      PG_DB: sisdash_ci
+      DATABASE_URL: postgresql://ci:ci@postgresql:5432/sisdash_ci
+      SECRET_KEY: ci-only-secret-key
+      ALGORITHM: HS256
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2
 
+      - name: Build image
+        run: make build
+
+      - name: Start database
+        run: docker compose up -d postgresql
+
+      # `make migrate` usa `docker-compose exec`, que exige um container
+      # `api` já rodando em background — não é o caso aqui (só buildamos a
+      # imagem), por isso usamos `run --rm` diretamente.
+      - name: Run migrations
+        run: docker compose run --rm api pipenv run alembic upgrade head
+
+      # `make linter` roda `pipenv run flake8` dentro do container — antes
+      # rodava só `flake8` (sem `pipenv run`), que falhava com
+      # "executable not found" porque o flake8 só existe dentro do
+      # virtualenv do pipenv. Isso fazia esse step passar sempre sem checar
+      # nada de verdade (ver Makefile).
       - name: Run linter check
-        id: run-tests
-        run: |
-          make r-env
-          make build
-          make linter
+        run: make linter
+
+      - name: Run tests
+        run: make test

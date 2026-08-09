@@ -26,7 +26,10 @@ class PlanilhaModel(Base):
     forma_pagamento = Column(String, nullable=False)
     nome_produto = Column(String, nullable=False)
     categoria_produto = Column(String, nullable=False)
-    historic_dashboard_id = Column(Integer, ForeignKey("historic_dashboard.id"), index=True)
+    historic_dashboard_id = Column(
+        Integer,
+        ForeignKey("historic_dashboard.id"),
+        index=True)
 
 
 class HistoricDashboard(Base):

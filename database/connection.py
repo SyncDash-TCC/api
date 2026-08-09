@@ -19,4 +19,4 @@ engine = create_engine(
     max_overflow=5,
     pool_recycle=300,
 )
-Session = sessionmaker(bind=engine)
+SessionLocal = sessionmaker(bind=engine)
