@@ -1,0 +1,10 @@
+.git
+.github
+.env
+*.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
+.idea/
+README.md

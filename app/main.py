@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -5,9 +6,15 @@ from app.routes import user_router, planilha_router, dashboard_router, historico
 
 app = FastAPI()
 
+# Lista separada por vírgula, ex: "https://meu-ui.onrender.com,http://localhost:3000"
+# Definida via env var pra não precisar mudar código a cada novo deploy/domínio.
 origins = [
-    "https://ui-6kpo.onrender.com",
-    "http://localhost:3000",
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,https://ui-6kpo.onrender.com"
+    ).split(",")
+    if origin.strip()
 ]
 
 app.add_middleware(

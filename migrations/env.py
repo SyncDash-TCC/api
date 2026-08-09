@@ -11,7 +11,13 @@ from database.models import Base
 # access to the values within the .ini file in use.
 config = context.config
 
-config.set_main_option("sqlalchemy.url", getenv("DATABASE_URL"))
+_database_url = getenv("DATABASE_URL")
+# Alguns provedores (Render, Heroku) ainda entregam a connection string com o
+# esquema legado "postgres://", que o SQLAlchemy 1.4+ não aceita mais.
+if _database_url and _database_url.startswith("postgres://"):
+    _database_url = _database_url.replace("postgres://", "postgresql://", 1)
+
+config.set_main_option("sqlalchemy.url", _database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

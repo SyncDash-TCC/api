@@ -15,7 +15,12 @@ RUN pipenv install flake8 --dev
 
 RUN apt-get update && apt-get install -y make
 
+RUN chmod +x /app/entrypoint.sh
+
 EXPOSE 8000
 
-# CMD ["sh", "-c", "make create_db && make makemigrations-prod && make migrate-prod && pipenv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"]
-CMD ["pipenv", "run", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+# Este CMD é o que roda em produção (Render/Railway/etc via `docker build` puro):
+# aplica migrations e sobe uvicorn sem --reload, respeitando $PORT.
+# Localmente, `docker-compose.yml` sobrescreve isso com `command:` para manter
+# hot-reload no dia a dia — não precisa mexer aqui pra desenvolver.
+CMD ["/app/entrypoint.sh"]

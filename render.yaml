@@ -1,0 +1,35 @@
+databases:
+  - name: syncdash-db
+    plan: free
+    databaseName: syncdash
+    user: syncdash
+    # OBS: Postgres free do Render expira 30 dias após a criação (com 14 dias
+    # de carência antes de apagar de vez). Pra um free-tier permanente, crie o
+    # banco em outro provedor (ex: neon.tech, free forever) e troque o valor
+    # de DATABASE_URL abaixo pela connection string de lá — o resto do
+    # blueprint funciona igual.
+
+services:
+  - type: web
+    name: syncdash-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: syncdash-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: CORS_ORIGINS
+        # Preencha com a URL do site estático da UI depois do primeiro deploy
+        # (ex: https://syncdash-ui.onrender.com). Pode ter várias, separadas
+        # por vírgula.
+        sync: false
