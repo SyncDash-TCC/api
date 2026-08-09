@@ -198,10 +198,8 @@ def get_dashboard_detail(
 
     if id_historico:
         filters.append(PlanilhaModel.historic_dashboard_id == id_historico)
-    
-    planilhas = db_session.query(PlanilhaModel).filter(and_(*filters)).order_by(PlanilhaModel.data_venda).all()
 
-    data = get_data_dashboard(planilhas, user, db_session, filters)
+    data = get_data_dashboard(user, db_session, filters)
 
     return JSONResponse(
         content=data,

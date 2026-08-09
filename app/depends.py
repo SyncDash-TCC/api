@@ -51,15 +51,7 @@ def get_current_user(token: str = Depends(oauth_scheme), db: Session = Depends(g
     return user
 
 
-def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) -> dict:
-
-    unique_dates = set()
-    
-    for planilha in planilhas:
-        year_month = planilha.data_venda.strftime("%Y-%m")
-        unique_dates.add(year_month)
-
-    year_months = list(sorted(unique_dates))
+def get_data_dashboard(user: UserModel, db_session, filters) -> dict:
 
     faturamento_results = (
         db_session.query(
@@ -85,6 +77,8 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
         .group_by(func.to_char(PlanilhaModel.data_venda, 'YYYY-MM'), PlanilhaModel.forma_pagamento)
         .all()
     )
+
+    year_months = sorted({res.year_month for res in forma_pagamento_results})
 
     categoria_results = (
         db_session.query(PlanilhaModel.categoria_produto, func.count(PlanilhaModel.id).label('total_vendas'))
@@ -122,16 +116,14 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
         .all()
     )
 
-    faturamento_liquido_total = (
-        db_session.query(func.sum(PlanilhaModel.valor_liquido).filter(and_(*filters)).label('faturamento_liquido_total'))
-    )
-
-    faturamento_bruto_total = (
-        db_session.query(func.sum(PlanilhaModel.valor_bruto).filter(and_(*filters)).label('faturamento_bruto_total'))
-    )
-
-    vendas_total = (
-        db_session.query(func.count(PlanilhaModel.id).filter(and_(*filters)).label('vendas_total'))
+    totals = (
+        db_session.query(
+            func.sum(PlanilhaModel.valor_liquido).label('faturamento_liquido_total'),
+            func.sum(PlanilhaModel.valor_bruto).label('faturamento_bruto_total'),
+            func.count(PlanilhaModel.id).label('vendas_total'),
+        )
+        .filter(and_(*filters))
+        .one()
     )
 
     produto_mais_vendido = (
@@ -235,14 +227,16 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
     }
 
     total_por_mes = {date: 0 for date in year_months}
+    valor_por_mes_metodo = {}
 
     for res in forma_pagamento_results:
         total_por_mes[res.year_month] += res.total_valor
+        valor_por_mes_metodo[(res.year_month, res.forma_pagamento)] = res.total_valor
 
     for date in year_months:
+        total_mes = total_por_mes[date]
         for metodo in pagamento_data.keys():
-            valor = next((res.total_valor for res in forma_pagamento_results if res.year_month == date and res.forma_pagamento == metodo), 0)
-            total_mes = total_por_mes[date]
+            valor = valor_por_mes_metodo.get((date, metodo), 0)
             porcentagem = (valor / total_mes * 100) if total_mes > 0 else 0
             pagamento_data[metodo].append(round(porcentagem, 2))
 
@@ -253,9 +247,9 @@ def get_data_dashboard(planilhas: list, user: UserModel, db_session, filters) ->
         "vendas_por_mes": vendas_por_mes,
         "produtos_servicos": produto_servico_data,
         "dias_com_mais_venda": dias_com_mais_vendas_ordenado,
-        "faturamento_liquido_total": faturamento_liquido_total.first().faturamento_liquido_total,
-        "faturamento_bruto_total": faturamento_bruto_total.first().faturamento_bruto_total,
-        "vendas_total": vendas_total.first().vendas_total,
+        "faturamento_liquido_total": totals.faturamento_liquido_total,
+        "faturamento_bruto_total": totals.faturamento_bruto_total,
+        "vendas_total": totals.vendas_total,
         "produto_mais_vendido": produto_mais_vendido.nome_produto if produto_mais_vendido else "-",
         "dates": dates_formatted,
         "date_selected": [datetime.strptime(date, '%Y-%m').strftime('%m/%Y') for date in year_months]
