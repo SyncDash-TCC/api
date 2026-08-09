@@ -36,8 +36,11 @@ jobs:
       - name: Build image
         run: make build
 
+      # --wait só retorna quando o healthcheck do serviço reporta "healthy"
+      # (ver docker-compose.yml) — sem isso, o passo seguinte às vezes tenta
+      # conectar antes do Postgres aceitar conexões ("Connection refused").
       - name: Start database
-        run: docker compose up -d postgresql
+        run: docker compose up -d --wait postgresql
 
       # `make migrate` usa `docker-compose exec`, que exige um container
       # `api` já rodando em background — não é o caso aqui (só buildamos a
